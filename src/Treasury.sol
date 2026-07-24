@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.36;
+pragma solidity ^0.8.35;
 
 /// @title Treasury
 /// @notice Simple ETH treasury that can receive deposits and allows the owner to withdraw.
