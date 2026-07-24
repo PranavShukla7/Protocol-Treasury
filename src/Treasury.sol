@@ -43,7 +43,7 @@ contract Treasury {
         if (amount == 0) revert ZeroAmount();
         if (amount > address(this).balance) revert InsufficientBalance();
 
-        (bool success, ) = payable(owner).call{value: amount}("");
+        (bool success,) = payable(owner).call{value: amount}("");
         if (!success) revert TransferFailed();
 
         emit Withdrawn(owner, amount, address(this).balance);
