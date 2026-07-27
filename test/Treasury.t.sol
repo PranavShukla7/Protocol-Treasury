@@ -32,6 +32,11 @@ contract TreasuryTest is Test {
         assertEq(treasury.contractBalance(), amount);
     }
 
+    function testDeployerIsOwner() public view {
+        assertEq(treasury.owners(0), address(this));
+        assertTrue(treasury.isOwner(address(this)));
+    }
+
     function testWithdrawWorks() public {
         uint256 depositAmount = 2 ether;
         uint256 withdrawAmount = 0.75 ether;
