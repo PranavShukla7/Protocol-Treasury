@@ -9,9 +9,10 @@ contract TreasuryTest is Test {
 
     address private depositor = address(0xA11CE);
     address private nonOwner = address(0xB0B);
+    address private recipient = address(0xCAFE);
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
-    event Withdrawn(address indexed recipient, uint256 amount, uint256 balanceAfter);
+    event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
 
     receive() external payable {}
 
@@ -37,38 +38,45 @@ contract TreasuryTest is Test {
         assertTrue(treasury.isOwner(address(this)));
     }
 
-    function testWithdrawWorks() public {
-        uint256 depositAmount = 2 ether;
-        uint256 withdrawAmount = 0.75 ether;
+    function testSubmitTransactionStoresTransaction() public {
+        uint256 amount = 0.75 ether;
 
-        vm.prank(depositor);
-        treasury.deposit{value: depositAmount}();
+        uint256 transactionIndex = treasury.submitTransaction(recipient, amount);
 
-        uint256 ownerBalanceBefore = address(this).balance;
-        treasury.withdraw(withdrawAmount);
-
-        assertEq(address(this).balance, ownerBalanceBefore + withdrawAmount);
-        assertEq(address(treasury).balance, depositAmount - withdrawAmount);
+        assertEq(transactionIndex, 0);
+        (address storedRecipient, uint256 storedAmount, bool executed, uint256 confirmations) =
+            treasury.transactions(transactionIndex);
+        assertEq(storedRecipient, recipient);
+        assertEq(storedAmount, amount);
+        assertFalse(executed);
+        assertEq(confirmations, 0);
     }
 
-    function testNonOwnerWithdrawFails() public {
-        vm.prank(depositor);
-        treasury.deposit{value: 1 ether}();
+    function testSubmitTransactionIndexIncrements() public {
+        uint256 firstIndex = treasury.submitTransaction(recipient, 1 ether);
+        uint256 secondIndex = treasury.submitTransaction(address(0xD00D), 2 ether);
 
-        vm.prank(nonOwner);
-        vm.expectRevert(Treasury.NotOwner.selector);
-        treasury.withdraw(0.5 ether);
+        assertEq(firstIndex, 0);
+        assertEq(secondIndex, 1);
     }
 
-    function testBalanceUpdates() public {
+    function testSubmitTransactionDoesNotExecute() public {
         vm.prank(depositor);
         treasury.deposit{value: 3 ether}();
 
+        uint256 recipientBalanceBefore = recipient.balance;
+        treasury.submitTransaction(recipient, 1 ether);
+
+        assertEq(recipient.balance, recipientBalanceBefore);
         assertEq(treasury.contractBalance(), 3 ether);
+        (,, bool executed,) = treasury.transactions(0);
+        assertFalse(executed);
+    }
 
-        treasury.withdraw(1 ether);
-
-        assertEq(treasury.contractBalance(), 2 ether);
+    function testNonOwnerSubmitTransactionFails() public {
+        vm.prank(nonOwner);
+        vm.expectRevert(Treasury.NotOwner.selector);
+        treasury.submitTransaction(recipient, 0.5 ether);
     }
 
     function testDepositEmitsEvent() public {
@@ -81,16 +89,10 @@ contract TreasuryTest is Test {
         treasury.deposit{value: amount}();
     }
 
-    function testWithdrawEmitsEvent() public {
-        uint256 depositAmount = 2 ether;
-        uint256 withdrawAmount = 0.5 ether;
-
-        vm.prank(depositor);
-        treasury.deposit{value: depositAmount}();
-
+    function testSubmitTransactionEmitsEvent() public {
         vm.expectEmit(true, false, false, true, address(treasury));
-        emit Withdrawn(address(this), withdrawAmount, depositAmount - withdrawAmount);
+        emit TransactionSubmitted(0, recipient, 0.5 ether);
 
-        treasury.withdraw(withdrawAmount);
+        treasury.submitTransaction(recipient, 0.5 ether);
     }
 }

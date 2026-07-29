@@ -2,18 +2,24 @@
 pragma solidity ^0.8.35;
 
 /// @title Treasury
-/// @notice Simple ETH treasury that can receive deposits and allows owners to withdraw.
+/// @notice Simple ETH treasury that can receive deposits and lets owners submit transactions.
 contract Treasury {
+    struct Transaction {
+        address recipient;
+        uint256 amount;
+        bool executed;
+        uint256 confirmations;
+    }
+
     address[] public owners;
     mapping(address => bool) public isOwner;
+    Transaction[] public transactions;
 
     error NotOwner();
     error ZeroAmount();
-    error InsufficientBalance();
-    error TransferFailed();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
-    event Withdrawn(address indexed recipient, uint256 amount, uint256 balanceAfter);
+    event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
 
     modifier onlyOwner() {
         if (!isOwner[msg.sender]) revert NotOwner();
@@ -39,16 +45,20 @@ contract Treasury {
         return address(this).balance;
     }
 
-    /// @notice Withdraw ETH from the treasury to the calling owner.
-    /// @param amount The amount of ETH to withdraw.
-    function withdraw(uint256 amount) external onlyOwner {
+    /// @notice Submit a transaction request. Execution happens in a later flow.
+    /// @param recipient The address intended to receive ETH.
+    /// @param amount The amount of ETH requested for the transaction.
+    function submitTransaction(address recipient, uint256 amount)
+        external
+        onlyOwner
+        returns (uint256 transactionIndex)
+    {
         if (amount == 0) revert ZeroAmount();
-        if (amount > address(this).balance) revert InsufficientBalance();
 
-        (bool success,) = payable(msg.sender).call{value: amount}("");
-        if (!success) revert TransferFailed();
+        transactionIndex = transactions.length;
+        transactions.push(Transaction({recipient: recipient, amount: amount, executed: false, confirmations: 0}));
 
-        emit Withdrawn(msg.sender, amount, address(this).balance);
+        emit TransactionSubmitted(transactionIndex, recipient, amount);
     }
 
     function _deposit() internal {
