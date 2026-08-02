@@ -8,6 +8,7 @@ contract TreasuryTest is Test {
     Treasury private treasury;
 
     address private depositor = address(0xA11CE);
+    address private ownerTwo = address(0xBEEF);
     address private nonOwner = address(0xB0B);
     address private recipient = address(0xCAFE);
 
@@ -18,6 +19,7 @@ contract TreasuryTest is Test {
 
     function setUp() public {
         treasury = new Treasury();
+        treasury.addOwner(ownerTwo);
 
         vm.deal(depositor, 10 ether);
         vm.deal(nonOwner, 10 ether);
@@ -94,5 +96,56 @@ contract TreasuryTest is Test {
         emit TransactionSubmitted(0, recipient, 0.5 ether);
 
         treasury.submitTransaction(recipient, 0.5 ether);
+    }
+
+    function testCannotApproveTwice() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
+
+        treasury.approve(transactionIndex);
+
+        vm.expectRevert(Treasury.AlreadyApproved.selector);
+        treasury.approve(transactionIndex);
+
+        assertTrue(treasury.approved(transactionIndex, address(this)));
+        (,, bool executed, uint256 confirmations) = treasury.transactions(transactionIndex);
+        assertFalse(executed);
+        assertEq(confirmations, 1);
+    }
+
+    function testDifferentOwnersApprove() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
+
+        treasury.approve(transactionIndex);
+
+        vm.prank(ownerTwo);
+        treasury.approve(transactionIndex);
+
+        assertTrue(treasury.approved(transactionIndex, address(this)));
+        assertTrue(treasury.approved(transactionIndex, ownerTwo));
+    }
+
+    function testConfirmationCountCorrect() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
+
+        treasury.approve(transactionIndex);
+        (,,, uint256 confirmationsAfterFirstApproval) = treasury.transactions(transactionIndex);
+        assertEq(confirmationsAfterFirstApproval, 1);
+
+        vm.prank(ownerTwo);
+        treasury.approve(transactionIndex);
+        (,,, uint256 confirmationsAfterSecondApproval) = treasury.transactions(transactionIndex);
+        assertEq(confirmationsAfterSecondApproval, 2);
+    }
+
+    function testNonOwnerApproveTransactionFails() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
+
+        vm.prank(nonOwner);
+        vm.expectRevert(Treasury.NotOwner.selector);
+        treasury.approve(transactionIndex);
+
+        assertFalse(treasury.approved(transactionIndex, nonOwner));
+        (,,, uint256 confirmations) = treasury.transactions(transactionIndex);
+        assertEq(confirmations, 0);
     }
 }
