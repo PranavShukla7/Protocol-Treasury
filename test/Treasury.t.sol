@@ -148,4 +148,70 @@ contract TreasuryTest is Test {
         (,,, uint256 confirmations) = treasury.transactions(transactionIndex);
         assertEq(confirmations, 0);
     }
+
+    function testExecuteSuccess() public {
+        uint256 transactionIndex = _depositSubmitAndApprove(2 ether, 1 ether);
+
+        treasury.execute(transactionIndex);
+
+        (,, bool executed,) = treasury.transactions(transactionIndex);
+        assertTrue(executed);
+    }
+
+    function testExecuteTwiceFails() public {
+        uint256 transactionIndex = _depositSubmitAndApprove(2 ether, 1 ether);
+
+        treasury.execute(transactionIndex);
+
+        vm.expectRevert(Treasury.AlreadyExecuted.selector);
+        treasury.execute(transactionIndex);
+    }
+
+    function testInsufficientApprovalsExecuteFails() public {
+        vm.prank(depositor);
+        treasury.deposit{value: 2 ether}();
+
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 1 ether);
+        treasury.approve(transactionIndex);
+
+        vm.expectRevert(Treasury.InsufficientApprovals.selector);
+        treasury.execute(transactionIndex);
+
+        (,, bool executed,) = treasury.transactions(transactionIndex);
+        assertFalse(executed);
+    }
+
+    function testExecuteDecreasesTreasuryBalance() public {
+        uint256 amount = 1 ether;
+        uint256 transactionIndex = _depositSubmitAndApprove(3 ether, amount);
+        uint256 treasuryBalanceBefore = treasury.contractBalance();
+
+        treasury.execute(transactionIndex);
+
+        assertEq(treasury.contractBalance(), treasuryBalanceBefore - amount);
+    }
+
+    function testExecuteIncreasesRecipientBalance() public {
+        uint256 amount = 1 ether;
+        uint256 transactionIndex = _depositSubmitAndApprove(3 ether, amount);
+        uint256 recipientBalanceBefore = recipient.balance;
+
+        treasury.execute(transactionIndex);
+
+        assertEq(recipient.balance, recipientBalanceBefore + amount);
+    }
+
+    function _depositSubmitAndApprove(uint256 depositAmount, uint256 transactionAmount)
+        private
+        returns (uint256 transactionIndex)
+    {
+        vm.prank(depositor);
+        treasury.deposit{value: depositAmount}();
+
+        transactionIndex = treasury.submitTransaction(recipient, transactionAmount);
+        treasury.approve(transactionIndex);
+
+        vm.prank(ownerTwo);
+        treasury.approve(transactionIndex);
+    }
 }

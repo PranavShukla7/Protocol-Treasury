@@ -20,10 +20,14 @@ contract Treasury {
     error ZeroAmount();
     error AlreadyOwner();
     error AlreadyApproved();
+    error AlreadyExecuted();
+    error InsufficientApprovals();
+    error TransactionFailed();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
     event TransactionApproved(uint256 indexed transactionIndex, address indexed owner, uint256 confirmations);
+    event TransactionExecuted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
 
     modifier onlyOwner() {
         if (!isOwner[msg.sender]) revert NotOwner();
@@ -84,6 +88,22 @@ contract Treasury {
     /// @param transactionIndex The transaction request to approve.
     function approveTransaction(uint256 transactionIndex) external onlyOwner {
         _approveTransaction(transactionIndex);
+    }
+
+    /// @notice Execute an approved transaction request.
+    /// @param transactionIndex The transaction request to execute.
+    function execute(uint256 transactionIndex) external onlyOwner {
+        Transaction storage transaction = transactions[transactionIndex];
+
+        if (transaction.executed) revert AlreadyExecuted();
+        if (transaction.confirmations < owners.length) revert InsufficientApprovals();
+
+        transaction.executed = true;
+
+        (bool success,) = transaction.recipient.call{value: transaction.amount}("");
+        if (!success) revert TransactionFailed();
+
+        emit TransactionExecuted(transactionIndex, transaction.recipient, transaction.amount);
     }
 
     function _approveTransaction(uint256 transactionIndex) internal {
