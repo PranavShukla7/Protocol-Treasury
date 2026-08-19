@@ -9,7 +9,11 @@ contract Treasury {
         uint256 amount;
         bool executed;
         uint256 confirmations;
+        uint256 executeAfter;
+        bool queued;
     }
+
+    uint256 public constant EXECUTION_DELAY = 1 days;
 
     address[] public owners;
     mapping(address => bool) public isOwner;
@@ -21,12 +25,16 @@ contract Treasury {
     error AlreadyOwner();
     error AlreadyApproved();
     error AlreadyExecuted();
+    error AlreadyQueued();
     error InsufficientApprovals();
+    error TransactionNotQueued();
+    error ExecutionDelayNotElapsed();
     error TransactionFailed();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
     event TransactionApproved(uint256 indexed transactionIndex, address indexed owner, uint256 confirmations);
+    event TransactionQueued(uint256 indexed transactionIndex, uint256 executeAfter);
     event TransactionExecuted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
 
     modifier onlyOwner() {
@@ -73,7 +81,11 @@ contract Treasury {
         if (amount == 0) revert ZeroAmount();
 
         transactionIndex = transactions.length;
-        transactions.push(Transaction({recipient: recipient, amount: amount, executed: false, confirmations: 0}));
+        transactions.push(
+            Transaction({
+                recipient: recipient, amount: amount, executed: false, confirmations: 0, executeAfter: 0, queued: false
+            })
+        );
 
         emit TransactionSubmitted(transactionIndex, recipient, amount);
     }
@@ -90,6 +102,18 @@ contract Treasury {
         _approveTransaction(transactionIndex);
     }
 
+    /// @notice Queue an approved transaction request for execution after the delay.
+    /// @param transactionIndex The transaction request to queue.
+    function queue(uint256 transactionIndex) external onlyOwner {
+        _queueTransaction(transactionIndex);
+    }
+
+    /// @notice Queue an approved transaction request for execution after the delay.
+    /// @param transactionIndex The transaction request to queue.
+    function queueTransaction(uint256 transactionIndex) external onlyOwner {
+        _queueTransaction(transactionIndex);
+    }
+
     /// @notice Execute an approved transaction request.
     /// @param transactionIndex The transaction request to execute.
     function execute(uint256 transactionIndex) external onlyOwner {
@@ -97,6 +121,8 @@ contract Treasury {
 
         if (transaction.executed) revert AlreadyExecuted();
         if (transaction.confirmations < owners.length) revert InsufficientApprovals();
+        if (!transaction.queued) revert TransactionNotQueued();
+        if (block.timestamp < transaction.executeAfter) revert ExecutionDelayNotElapsed();
 
         transaction.executed = true;
 
@@ -113,6 +139,20 @@ contract Treasury {
         transactions[transactionIndex].confirmations++;
 
         emit TransactionApproved(transactionIndex, msg.sender, transactions[transactionIndex].confirmations);
+    }
+
+    function _queueTransaction(uint256 transactionIndex) internal {
+        Transaction storage transaction = transactions[transactionIndex];
+
+        if (transaction.executed) revert AlreadyExecuted();
+        if (transaction.queued) revert AlreadyQueued();
+        if (transaction.confirmations < owners.length) revert InsufficientApprovals();
+
+        uint256 executeAfter = block.timestamp + EXECUTION_DELAY;
+        transaction.executeAfter = executeAfter;
+        transaction.queued = true;
+
+        emit TransactionQueued(transactionIndex, executeAfter);
     }
 
     function _deposit() internal {
