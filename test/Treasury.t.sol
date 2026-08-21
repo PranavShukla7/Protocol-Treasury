@@ -51,6 +51,7 @@ contract TreasuryTest is Test {
             address storedRecipient,
             uint256 storedAmount,
             bool executed,
+            bool cancelled,
             uint256 confirmations,
             uint256 executeAfter,
             bool queued
@@ -58,6 +59,7 @@ contract TreasuryTest is Test {
         assertEq(storedRecipient, recipient);
         assertEq(storedAmount, amount);
         assertFalse(executed);
+        assertFalse(cancelled);
         assertEq(confirmations, 0);
         assertEq(executeAfter, 0);
         assertFalse(queued);
@@ -80,8 +82,9 @@ contract TreasuryTest is Test {
 
         assertEq(recipient.balance, recipientBalanceBefore);
         assertEq(treasury.contractBalance(), 3 ether);
-        (,, bool executed,, uint256 executeAfter, bool queued) = treasury.transactions(0);
+        (,, bool executed, bool cancelled,, uint256 executeAfter, bool queued) = treasury.transactions(0);
         assertFalse(executed);
+        assertFalse(cancelled);
         assertEq(executeAfter, 0);
         assertFalse(queued);
     }
@@ -118,8 +121,10 @@ contract TreasuryTest is Test {
         treasury.approve(transactionIndex);
 
         assertTrue(treasury.approved(transactionIndex, address(this)));
-        (,, bool executed, uint256 confirmations,, bool queued) = treasury.transactions(transactionIndex);
+        (,, bool executed, bool cancelled, uint256 confirmations,, bool queued) =
+            treasury.transactions(transactionIndex);
         assertFalse(executed);
+        assertFalse(cancelled);
         assertEq(confirmations, 1);
         assertFalse(queued);
     }
@@ -140,12 +145,12 @@ contract TreasuryTest is Test {
         uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
 
         treasury.approve(transactionIndex);
-        (,,, uint256 confirmationsAfterFirstApproval,,) = treasury.transactions(transactionIndex);
+        (,,,, uint256 confirmationsAfterFirstApproval,,) = treasury.transactions(transactionIndex);
         assertEq(confirmationsAfterFirstApproval, 1);
 
         vm.prank(ownerTwo);
         treasury.approve(transactionIndex);
-        (,,, uint256 confirmationsAfterSecondApproval,,) = treasury.transactions(transactionIndex);
+        (,,,, uint256 confirmationsAfterSecondApproval,,) = treasury.transactions(transactionIndex);
         assertEq(confirmationsAfterSecondApproval, 2);
     }
 
@@ -157,7 +162,7 @@ contract TreasuryTest is Test {
         treasury.approve(transactionIndex);
 
         assertFalse(treasury.approved(transactionIndex, nonOwner));
-        (,,, uint256 confirmations,,) = treasury.transactions(transactionIndex);
+        (,,,, uint256 confirmations,,) = treasury.transactions(transactionIndex);
         assertEq(confirmations, 0);
     }
 
@@ -167,7 +172,7 @@ contract TreasuryTest is Test {
 
         treasury.queue(transactionIndex);
 
-        (,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertTrue(queued);
         assertEq(executeAfter, expectedExecuteAfter);
     }
@@ -178,7 +183,7 @@ contract TreasuryTest is Test {
 
         treasury.queueTransaction(transactionIndex);
 
-        (,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertTrue(queued);
         assertEq(executeAfter, expectedExecuteAfter);
     }
@@ -200,7 +205,7 @@ contract TreasuryTest is Test {
         vm.expectRevert(Treasury.InsufficientApprovals.selector);
         treasury.queue(transactionIndex);
 
-        (,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertEq(executeAfter, 0);
         assertFalse(queued);
     }
@@ -221,7 +226,7 @@ contract TreasuryTest is Test {
         vm.expectRevert(Treasury.NotOwner.selector);
         treasury.queue(transactionIndex);
 
-        (,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertEq(executeAfter, 0);
         assertFalse(queued);
     }
@@ -231,8 +236,9 @@ contract TreasuryTest is Test {
 
         treasury.execute(transactionIndex);
 
-        (,, bool executed,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,, bool executed, bool cancelled,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertTrue(executed);
+        assertFalse(cancelled);
         assertTrue(queued);
         assertLe(executeAfter, block.timestamp);
     }
@@ -256,8 +262,9 @@ contract TreasuryTest is Test {
         vm.expectRevert(Treasury.InsufficientApprovals.selector);
         treasury.execute(transactionIndex);
 
-        (,, bool executed,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,, bool executed, bool cancelled,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertFalse(executed);
+        assertFalse(cancelled);
         assertEq(executeAfter, 0);
         assertFalse(queued);
     }
@@ -271,8 +278,9 @@ contract TreasuryTest is Test {
         vm.expectRevert(Treasury.TransactionNotQueued.selector);
         treasury.execute(transactionIndex);
 
-        (,, bool executed,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,, bool executed, bool cancelled,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertFalse(executed);
+        assertFalse(cancelled);
         assertEq(executeAfter, 0);
         assertFalse(queued);
     }
@@ -287,8 +295,9 @@ contract TreasuryTest is Test {
         vm.expectRevert(Treasury.ExecutionDelayNotElapsed.selector);
         treasury.execute(transactionIndex);
 
-        (,, bool executed,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        (,, bool executed, bool cancelled,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
         assertFalse(executed);
+        assertFalse(cancelled);
         assertEq(executeAfter, block.timestamp + treasury.EXECUTION_DELAY());
         assertTrue(queued);
     }
@@ -331,7 +340,7 @@ contract TreasuryTest is Test {
         transactionIndex = _submitAndApprove(transactionAmount);
         treasury.queue(transactionIndex);
 
-        (,,,, uint256 executeAfter,) = treasury.transactions(transactionIndex);
+        (,,,,, uint256 executeAfter,) = treasury.transactions(transactionIndex);
         vm.warp(executeAfter);
     }
 }

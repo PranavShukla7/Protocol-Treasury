@@ -8,6 +8,7 @@ contract Treasury {
         address recipient;
         uint256 amount;
         bool executed;
+        bool cancelled;
         uint256 confirmations;
         uint256 executeAfter;
         bool queued;
@@ -83,7 +84,13 @@ contract Treasury {
         transactionIndex = transactions.length;
         transactions.push(
             Transaction({
-                recipient: recipient, amount: amount, executed: false, confirmations: 0, executeAfter: 0, queued: false
+                recipient: recipient,
+                amount: amount,
+                executed: false,
+                cancelled: false,
+                confirmations: 0,
+                executeAfter: 0,
+                queued: false
             })
         );
 
