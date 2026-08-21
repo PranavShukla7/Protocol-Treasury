@@ -292,6 +292,21 @@ contract TreasuryTest is Test {
         treasury.execute(transactionIndex);
     }
 
+    function testExecuteCancelledTransactionFails() public {
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
+
+        treasury.cancelTransaction(transactionIndex);
+
+        vm.expectRevert(Treasury.TransactionIsCancelled.selector);
+        treasury.execute(transactionIndex);
+
+        (,, bool executed, bool cancelled,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        assertFalse(executed);
+        assertTrue(cancelled);
+        assertTrue(queued);
+        assertLe(executeAfter, block.timestamp);
+    }
+
     function testCannotCancelExecutedTransaction() public {
         uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
 

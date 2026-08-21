@@ -32,6 +32,7 @@ contract Treasury {
     error TransactionNotQueued();
     error ExecutionDelayNotElapsed();
     error TransactionFailed();
+    error TransactionIsCancelled();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
@@ -142,6 +143,7 @@ contract Treasury {
         Transaction storage transaction = transactions[transactionIndex];
 
         if (transaction.executed) revert AlreadyExecuted();
+        if (transaction.cancelled) revert TransactionIsCancelled();
         if (transaction.confirmations < owners.length) revert InsufficientApprovals();
         if (!transaction.queued) revert TransactionNotQueued();
         if (block.timestamp < transaction.executeAfter) revert ExecutionDelayNotElapsed();
