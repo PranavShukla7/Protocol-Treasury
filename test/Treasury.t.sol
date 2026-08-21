@@ -15,6 +15,7 @@ contract TreasuryTest is Test {
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
     event TransactionQueued(uint256 indexed transactionIndex, uint256 executeAfter);
+    event TransactionCancelled(uint256 indexed transactionIndex);
 
     receive() external payable {}
 
@@ -231,6 +232,45 @@ contract TreasuryTest is Test {
         assertFalse(queued);
     }
 
+    function testCancelTransactionSetsCancelled() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 1 ether);
+
+        treasury.cancelTransaction(transactionIndex);
+
+        (,, bool executed, bool cancelled,,,) = treasury.transactions(transactionIndex);
+        assertFalse(executed);
+        assertTrue(cancelled);
+    }
+
+    function testCancelTransactionEmitsEvent() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 1 ether);
+
+        vm.expectEmit(true, false, false, true, address(treasury));
+        emit TransactionCancelled(transactionIndex);
+
+        treasury.cancelTransaction(transactionIndex);
+    }
+
+    function testNonOwnerCancelTransactionFails() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 1 ether);
+
+        vm.prank(nonOwner);
+        vm.expectRevert(Treasury.NotOwner.selector);
+        treasury.cancelTransaction(transactionIndex);
+
+        (,,, bool cancelled,,,) = treasury.transactions(transactionIndex);
+        assertFalse(cancelled);
+    }
+
+    function testCannotCancelTransactionTwice() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 1 ether);
+
+        treasury.cancelTransaction(transactionIndex);
+
+        vm.expectRevert(Treasury.AlreadyCancelled.selector);
+        treasury.cancelTransaction(transactionIndex);
+    }
+
     function testExecuteSuccess() public {
         uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
 
@@ -250,6 +290,15 @@ contract TreasuryTest is Test {
 
         vm.expectRevert(Treasury.AlreadyExecuted.selector);
         treasury.execute(transactionIndex);
+    }
+
+    function testCannotCancelExecutedTransaction() public {
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
+
+        treasury.execute(transactionIndex);
+
+        vm.expectRevert(Treasury.AlreadyExecuted.selector);
+        treasury.cancelTransaction(transactionIndex);
     }
 
     function testInsufficientApprovalsExecuteFails() public {

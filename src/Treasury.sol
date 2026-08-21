@@ -26,6 +26,7 @@ contract Treasury {
     error AlreadyOwner();
     error AlreadyApproved();
     error AlreadyExecuted();
+    error AlreadyCancelled();
     error AlreadyQueued();
     error InsufficientApprovals();
     error TransactionNotQueued();
@@ -36,6 +37,7 @@ contract Treasury {
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
     event TransactionApproved(uint256 indexed transactionIndex, address indexed owner, uint256 confirmations);
     event TransactionQueued(uint256 indexed transactionIndex, uint256 executeAfter);
+    event TransactionCancelled(uint256 indexed transactionIndex);
     event TransactionExecuted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
 
     modifier onlyOwner() {
@@ -119,6 +121,19 @@ contract Treasury {
     /// @param transactionIndex The transaction request to queue.
     function queueTransaction(uint256 transactionIndex) external onlyOwner {
         _queueTransaction(transactionIndex);
+    }
+
+    /// @notice Cancel a submitted transaction request before it executes.
+    /// @param transactionIndex The transaction request to cancel.
+    function cancelTransaction(uint256 transactionIndex) external onlyOwner {
+        Transaction storage transaction = transactions[transactionIndex];
+
+        if (transaction.executed) revert AlreadyExecuted();
+        if (transaction.cancelled) revert AlreadyCancelled();
+
+        transaction.cancelled = true;
+
+        emit TransactionCancelled(transactionIndex);
     }
 
     /// @notice Execute an approved transaction request.
