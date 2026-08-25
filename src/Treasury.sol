@@ -20,6 +20,7 @@ contract Treasury {
     mapping(address => bool) public isOwner;
     mapping(uint256 => mapping(address => bool)) public approved;
     Transaction[] public transactions;
+    bool public paused;
 
     error NotOwner();
     error ZeroAmount();
@@ -33,6 +34,9 @@ contract Treasury {
     error ExecutionDelayNotElapsed();
     error TransactionFailed();
     error TransactionIsCancelled();
+    error AlreadyPaused();
+    error NotPaused();
+    error ContractPaused();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
@@ -40,9 +44,16 @@ contract Treasury {
     event TransactionQueued(uint256 indexed transactionIndex, uint256 executeAfter);
     event TransactionCancelled(uint256 indexed transactionIndex);
     event TransactionExecuted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
 
     modifier onlyOwner() {
         if (!isOwner[msg.sender]) revert NotOwner();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
         _;
     }
 
@@ -51,12 +62,12 @@ contract Treasury {
         isOwner[msg.sender] = true;
     }
 
-    receive() external payable {
+    receive() external payable whenNotPaused {
         _deposit();
     }
 
     /// @notice Deposit ETH into the treasury.
-    function deposit() external payable {
+    function deposit() external payable whenNotPaused {
         _deposit();
     }
 
@@ -67,11 +78,29 @@ contract Treasury {
 
     /// @notice Add a new treasury owner.
     /// @param owner The address to add as an owner.
-    function addOwner(address owner) external onlyOwner {
+    function addOwner(address owner) external onlyOwner whenNotPaused {
         if (isOwner[owner]) revert AlreadyOwner();
 
         owners.push(owner);
         isOwner[owner] = true;
+    }
+
+    /// @notice Pause treasury operations.
+    function pause() external onlyOwner {
+        if (paused) revert AlreadyPaused();
+
+        paused = true;
+
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Resume treasury operations.
+    function unpause() external onlyOwner {
+        if (!paused) revert NotPaused();
+
+        paused = false;
+
+        emit Unpaused(msg.sender);
     }
 
     /// @notice Submit a transaction request. Execution happens in a later flow.
@@ -80,6 +109,7 @@ contract Treasury {
     function submitTransaction(address recipient, uint256 amount)
         external
         onlyOwner
+        whenNotPaused
         returns (uint256 transactionIndex)
     {
         if (amount == 0) revert ZeroAmount();
@@ -102,31 +132,31 @@ contract Treasury {
 
     /// @notice Approve a submitted transaction request.
     /// @param transactionIndex The transaction request to approve.
-    function approve(uint256 transactionIndex) external onlyOwner {
+    function approve(uint256 transactionIndex) external onlyOwner whenNotPaused {
         _approveTransaction(transactionIndex);
     }
 
     /// @notice Approve a submitted transaction request.
     /// @param transactionIndex The transaction request to approve.
-    function approveTransaction(uint256 transactionIndex) external onlyOwner {
+    function approveTransaction(uint256 transactionIndex) external onlyOwner whenNotPaused {
         _approveTransaction(transactionIndex);
     }
 
     /// @notice Queue an approved transaction request for execution after the delay.
     /// @param transactionIndex The transaction request to queue.
-    function queue(uint256 transactionIndex) external onlyOwner {
+    function queue(uint256 transactionIndex) external onlyOwner whenNotPaused {
         _queueTransaction(transactionIndex);
     }
 
     /// @notice Queue an approved transaction request for execution after the delay.
     /// @param transactionIndex The transaction request to queue.
-    function queueTransaction(uint256 transactionIndex) external onlyOwner {
+    function queueTransaction(uint256 transactionIndex) external onlyOwner whenNotPaused {
         _queueTransaction(transactionIndex);
     }
 
     /// @notice Cancel a submitted transaction request before it executes.
     /// @param transactionIndex The transaction request to cancel.
-    function cancelTransaction(uint256 transactionIndex) external onlyOwner {
+    function cancelTransaction(uint256 transactionIndex) external onlyOwner whenNotPaused {
         Transaction storage transaction = transactions[transactionIndex];
 
         if (transaction.executed) revert AlreadyExecuted();
@@ -139,7 +169,7 @@ contract Treasury {
 
     /// @notice Execute an approved transaction request.
     /// @param transactionIndex The transaction request to execute.
-    function execute(uint256 transactionIndex) external onlyOwner {
+    function execute(uint256 transactionIndex) external onlyOwner whenNotPaused {
         Transaction storage transaction = transactions[transactionIndex];
 
         if (transaction.executed) revert AlreadyExecuted();

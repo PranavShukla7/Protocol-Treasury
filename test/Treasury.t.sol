@@ -16,6 +16,8 @@ contract TreasuryTest is Test {
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
     event TransactionQueued(uint256 indexed transactionIndex, uint256 executeAfter);
     event TransactionCancelled(uint256 indexed transactionIndex);
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
 
     receive() external payable {}
 
@@ -40,6 +42,80 @@ contract TreasuryTest is Test {
     function testDeployerIsOwner() public view {
         assertEq(treasury.owners(0), address(this));
         assertTrue(treasury.isOwner(address(this)));
+    }
+
+    function testStartsUnpaused() public view {
+        assertFalse(treasury.paused());
+    }
+
+    function testPauseSetsPaused() public {
+        treasury.pause();
+
+        assertTrue(treasury.paused());
+    }
+
+    function testPauseEmitsEvent() public {
+        vm.expectEmit(true, false, false, true, address(treasury));
+        emit Paused(address(this));
+
+        treasury.pause();
+    }
+
+    function testUnpauseSetsPausedFalse() public {
+        treasury.pause();
+
+        treasury.unpause();
+
+        assertFalse(treasury.paused());
+    }
+
+    function testUnpauseEmitsEvent() public {
+        treasury.pause();
+
+        vm.expectEmit(true, false, false, true, address(treasury));
+        emit Unpaused(address(this));
+
+        treasury.unpause();
+    }
+
+    function testNonOwnerPauseFails() public {
+        vm.prank(nonOwner);
+        vm.expectRevert(Treasury.NotOwner.selector);
+        treasury.pause();
+
+        assertFalse(treasury.paused());
+    }
+
+    function testNonOwnerUnpauseFails() public {
+        treasury.pause();
+
+        vm.prank(nonOwner);
+        vm.expectRevert(Treasury.NotOwner.selector);
+        treasury.unpause();
+
+        assertTrue(treasury.paused());
+    }
+
+    function testCannotPauseTwice() public {
+        treasury.pause();
+
+        vm.expectRevert(Treasury.AlreadyPaused.selector);
+        treasury.pause();
+    }
+
+    function testCannotUnpauseWhenNotPaused() public {
+        vm.expectRevert(Treasury.NotPaused.selector);
+        treasury.unpause();
+    }
+
+    function testUnpauseRestoresDeposits() public {
+        treasury.pause();
+        treasury.unpause();
+
+        vm.prank(depositor);
+        treasury.deposit{value: 1 ether}();
+
+        assertEq(treasury.contractBalance(), 1 ether);
     }
 
     function testSubmitTransactionStoresTransaction() public {
@@ -106,10 +182,36 @@ contract TreasuryTest is Test {
         treasury.deposit{value: amount}();
     }
 
+    function testPausedDepositFails() public {
+        treasury.pause();
+
+        vm.prank(depositor);
+        vm.expectRevert(Treasury.ContractPaused.selector);
+        treasury.deposit{value: 1 ether}();
+
+        assertEq(treasury.contractBalance(), 0);
+    }
+
+    function testPausedAddOwnerFails() public {
+        treasury.pause();
+
+        vm.expectRevert(Treasury.ContractPaused.selector);
+        treasury.addOwner(address(0xD00D));
+
+        assertFalse(treasury.isOwner(address(0xD00D)));
+    }
+
     function testSubmitTransactionEmitsEvent() public {
         vm.expectEmit(true, false, false, true, address(treasury));
         emit TransactionSubmitted(0, recipient, 0.5 ether);
 
+        treasury.submitTransaction(recipient, 0.5 ether);
+    }
+
+    function testPausedSubmitTransactionFails() public {
+        treasury.pause();
+
+        vm.expectRevert(Treasury.ContractPaused.selector);
         treasury.submitTransaction(recipient, 0.5 ether);
     }
 
@@ -140,6 +242,16 @@ contract TreasuryTest is Test {
 
         assertTrue(treasury.approved(transactionIndex, address(this)));
         assertTrue(treasury.approved(transactionIndex, ownerTwo));
+    }
+
+    function testPausedApproveFails() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
+        treasury.pause();
+
+        vm.expectRevert(Treasury.ContractPaused.selector);
+        treasury.approve(transactionIndex);
+
+        assertFalse(treasury.approved(transactionIndex, address(this)));
     }
 
     function testConfirmationCountCorrect() public {
@@ -199,6 +311,18 @@ contract TreasuryTest is Test {
         treasury.queue(transactionIndex);
     }
 
+    function testPausedQueueFails() public {
+        uint256 transactionIndex = _submitAndApprove(1 ether);
+        treasury.pause();
+
+        vm.expectRevert(Treasury.ContractPaused.selector);
+        treasury.queue(transactionIndex);
+
+        (,,,,, uint256 executeAfter, bool queued) = treasury.transactions(transactionIndex);
+        assertEq(executeAfter, 0);
+        assertFalse(queued);
+    }
+
     function testCannotQueueWithoutEnoughApprovals() public {
         uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
         treasury.approve(transactionIndex);
@@ -249,6 +373,17 @@ contract TreasuryTest is Test {
         emit TransactionCancelled(transactionIndex);
 
         treasury.cancelTransaction(transactionIndex);
+    }
+
+    function testPausedCancelTransactionFails() public {
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 1 ether);
+        treasury.pause();
+
+        vm.expectRevert(Treasury.ContractPaused.selector);
+        treasury.cancelTransaction(transactionIndex);
+
+        (,,, bool cancelled,,,) = treasury.transactions(transactionIndex);
+        assertFalse(cancelled);
     }
 
     function testNonOwnerCancelTransactionFails() public {
@@ -305,6 +440,17 @@ contract TreasuryTest is Test {
         assertTrue(cancelled);
         assertTrue(queued);
         assertLe(executeAfter, block.timestamp);
+    }
+
+    function testPausedExecuteFails() public {
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
+        treasury.pause();
+
+        vm.expectRevert(Treasury.ContractPaused.selector);
+        treasury.execute(transactionIndex);
+
+        (,, bool executed,,,,) = treasury.transactions(transactionIndex);
+        assertFalse(executed);
     }
 
     function testCannotCancelExecutedTransaction() public {
