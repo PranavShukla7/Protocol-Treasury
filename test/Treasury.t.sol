@@ -572,6 +572,7 @@ contract TreasuryTest is Test {
     }
 
     function testExecuteRevertsWhenDailyLimitExceeded() public {
+        vm.deal(depositor, 250 ether);
         vm.prank(depositor);
         treasury.deposit{value: 200 ether}();
 
@@ -593,6 +594,7 @@ contract TreasuryTest is Test {
     }
 
     function testExecuteAllowsWithdrawalAfterDailyReset() public {
+        vm.deal(depositor, 250 ether);
         vm.prank(depositor);
         treasury.deposit{value: 200 ether}();
 
