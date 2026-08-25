@@ -15,12 +15,15 @@ contract Treasury {
     }
 
     uint256 public constant EXECUTION_DELAY = 1 days;
+    uint256 public constant DAILY_WITHDRAWAL_LIMIT = 100 ether;
 
     address[] public owners;
     mapping(address => bool) public isOwner;
     mapping(uint256 => mapping(address => bool)) public approved;
     Transaction[] public transactions;
     bool public paused;
+    uint256 public spentToday;
+    uint256 public lastReset;
 
     error NotOwner();
     error ZeroAmount();
@@ -37,6 +40,7 @@ contract Treasury {
     error AlreadyPaused();
     error NotPaused();
     error ContractPaused();
+    error DailyWithdrawalLimitExceeded();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
@@ -60,6 +64,7 @@ contract Treasury {
     constructor() {
         owners.push(msg.sender);
         isOwner[msg.sender] = true;
+        lastReset = block.timestamp;
     }
 
     receive() external payable whenNotPaused {
@@ -177,6 +182,17 @@ contract Treasury {
         if (transaction.confirmations < owners.length) revert InsufficientApprovals();
         if (!transaction.queued) revert TransactionNotQueued();
         if (block.timestamp < transaction.executeAfter) revert ExecutionDelayNotElapsed();
+
+        if (block.timestamp >= lastReset + 1 days) {
+            spentToday = 0;
+            lastReset = block.timestamp;
+        }
+
+        if (spentToday + transaction.amount > DAILY_WITHDRAWAL_LIMIT) {
+            revert DailyWithdrawalLimitExceeded();
+        }
+
+        spentToday += transaction.amount;
 
         transaction.executed = true;
 

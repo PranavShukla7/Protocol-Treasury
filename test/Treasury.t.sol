@@ -532,6 +532,60 @@ contract TreasuryTest is Test {
         assertEq(recipient.balance, recipientBalanceBefore + amount);
     }
 
+    function testExecuteTracksSpentToday() public {
+        uint256 amount = 1 ether;
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(3 ether, amount);
+
+        treasury.execute(transactionIndex);
+
+        assertEq(treasury.spentToday(), amount);
+    }
+
+    function testExecuteRevertsWhenDailyLimitExceeded() public {
+        vm.prank(depositor);
+        treasury.deposit{value: 200 ether}();
+
+        uint256 txOne = _submitAndApprove(80 ether);
+        uint256 txTwo = _submitAndApprove(30 ether);
+
+        treasury.queue(txOne);
+        treasury.queue(txTwo);
+
+        (,,,,, uint256 executeAfter,) = treasury.transactions(txOne);
+        vm.warp(executeAfter);
+
+        treasury.execute(txOne);
+
+        vm.expectRevert(Treasury.DailyWithdrawalLimitExceeded.selector);
+        treasury.execute(txTwo);
+
+        assertEq(treasury.spentToday(), 80 ether);
+    }
+
+    function testExecuteAllowsWithdrawalAfterDailyReset() public {
+        vm.prank(depositor);
+        treasury.deposit{value: 200 ether}();
+
+        uint256 txOne = _submitAndApprove(100 ether);
+        uint256 txTwo = _submitAndApprove(1 ether);
+
+        treasury.queue(txOne);
+        treasury.queue(txTwo);
+
+        (,,,,, uint256 executeAfter,) = treasury.transactions(txOne);
+        vm.warp(executeAfter);
+
+        treasury.execute(txOne);
+
+        vm.expectRevert(Treasury.DailyWithdrawalLimitExceeded.selector);
+        treasury.execute(txTwo);
+
+        vm.warp(block.timestamp + 1 days);
+        treasury.execute(txTwo);
+
+        assertEq(treasury.spentToday(), 1 ether);
+    }
+
     function _submitAndApprove(uint256 transactionAmount) private returns (uint256 transactionIndex) {
         transactionIndex = treasury.submitTransaction(recipient, transactionAmount);
         treasury.approve(transactionIndex);
