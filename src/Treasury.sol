@@ -19,6 +19,9 @@ contract Treasury {
 
     address[] public owners;
     mapping(address => bool) public isOwner;
+    mapping(address => bool) public isGuardian;
+    mapping(address => bool) public isExecutor;
+    mapping(address => bool) public isTreasurer;
     mapping(uint256 => mapping(address => bool)) public approved;
     Transaction[] public transactions;
     bool public paused;
@@ -26,6 +29,9 @@ contract Treasury {
     uint256 public lastReset;
 
     error NotOwner();
+    error NotGuardian();
+    error NotExecutor();
+    error NotTreasurer();
     error ZeroAmount();
     error AlreadyOwner();
     error AlreadyApproved();
@@ -50,6 +56,12 @@ contract Treasury {
     event TransactionExecuted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
     event Paused(address indexed account);
     event Unpaused(address indexed account);
+    event GuardianRoleGranted(address indexed account);
+    event GuardianRoleRevoked(address indexed account);
+    event ExecutorRoleGranted(address indexed account);
+    event ExecutorRoleRevoked(address indexed account);
+    event TreasurerRoleGranted(address indexed account);
+    event TreasurerRoleRevoked(address indexed account);
 
     modifier onlyOwner() {
         if (!isOwner[msg.sender]) revert NotOwner();
@@ -61,9 +73,27 @@ contract Treasury {
         _;
     }
 
+    modifier onlyGuardian() {
+        if (!isGuardian[msg.sender]) revert NotGuardian();
+        _;
+    }
+
+    modifier onlyExecutor() {
+        if (!isExecutor[msg.sender]) revert NotExecutor();
+        _;
+    }
+
+    modifier onlyTreasurer() {
+        if (!isTreasurer[msg.sender]) revert NotTreasurer();
+        _;
+    }
+
     constructor() {
         owners.push(msg.sender);
         isOwner[msg.sender] = true;
+        isGuardian[msg.sender] = true;
+        isExecutor[msg.sender] = true;
+        isTreasurer[msg.sender] = true;
         lastReset = block.timestamp;
     }
 
@@ -91,7 +121,7 @@ contract Treasury {
     }
 
     /// @notice Pause treasury operations.
-    function pause() external onlyOwner {
+    function pause() external onlyGuardian {
         if (paused) revert AlreadyPaused();
 
         paused = true;
@@ -100,7 +130,7 @@ contract Treasury {
     }
 
     /// @notice Resume treasury operations.
-    function unpause() external onlyOwner {
+    function unpause() external onlyGuardian {
         if (!paused) revert NotPaused();
 
         paused = false;
@@ -113,7 +143,7 @@ contract Treasury {
     /// @param amount The amount of ETH requested for the transaction.
     function submitTransaction(address recipient, uint256 amount)
         external
-        onlyOwner
+        onlyTreasurer
         whenNotPaused
         returns (uint256 transactionIndex)
     {
@@ -174,7 +204,7 @@ contract Treasury {
 
     /// @notice Execute an approved transaction request.
     /// @param transactionIndex The transaction request to execute.
-    function execute(uint256 transactionIndex) external onlyOwner whenNotPaused {
+    function execute(uint256 transactionIndex) external onlyExecutor whenNotPaused {
         Transaction storage transaction = transactions[transactionIndex];
 
         if (transaction.executed) revert AlreadyExecuted();
@@ -228,5 +258,35 @@ contract Treasury {
     function _deposit() internal {
         if (msg.value == 0) revert ZeroAmount();
         emit Deposited(msg.sender, msg.value, address(this).balance);
+    }
+
+    function grantGuardianRole(address account) external onlyOwner {
+        isGuardian[account] = true;
+        emit GuardianRoleGranted(account);
+    }
+
+    function revokeGuardianRole(address account) external onlyOwner {
+        isGuardian[account] = false;
+        emit GuardianRoleRevoked(account);
+    }
+
+    function grantExecutorRole(address account) external onlyOwner {
+        isExecutor[account] = true;
+        emit ExecutorRoleGranted(account);
+    }
+
+    function revokeExecutorRole(address account) external onlyOwner {
+        isExecutor[account] = false;
+        emit ExecutorRoleRevoked(account);
+    }
+
+    function grantTreasurerRole(address account) external onlyOwner {
+        isTreasurer[account] = true;
+        emit TreasurerRoleGranted(account);
+    }
+
+    function revokeTreasurerRole(address account) external onlyOwner {
+        isTreasurer[account] = false;
+        emit TreasurerRoleRevoked(account);
     }
 }

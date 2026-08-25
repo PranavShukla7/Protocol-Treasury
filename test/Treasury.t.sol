@@ -80,7 +80,7 @@ contract TreasuryTest is Test {
 
     function testNonOwnerPauseFails() public {
         vm.prank(nonOwner);
-        vm.expectRevert(Treasury.NotOwner.selector);
+        vm.expectRevert(Treasury.NotGuardian.selector);
         treasury.pause();
 
         assertFalse(treasury.paused());
@@ -90,7 +90,7 @@ contract TreasuryTest is Test {
         treasury.pause();
 
         vm.prank(nonOwner);
-        vm.expectRevert(Treasury.NotOwner.selector);
+        vm.expectRevert(Treasury.NotGuardian.selector);
         treasury.unpause();
 
         assertTrue(treasury.paused());
@@ -168,8 +168,17 @@ contract TreasuryTest is Test {
 
     function testNonOwnerSubmitTransactionFails() public {
         vm.prank(nonOwner);
-        vm.expectRevert(Treasury.NotOwner.selector);
+        vm.expectRevert(Treasury.NotTreasurer.selector);
         treasury.submitTransaction(recipient, 0.5 ether);
+    }
+
+    function testGrantedTreasurerCanSubmitTransaction() public {
+        treasury.grantTreasurerRole(nonOwner);
+
+        vm.prank(nonOwner);
+        uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
+
+        assertEq(transactionIndex, 0);
     }
 
     function testDepositEmitsEvent() public {
@@ -416,6 +425,27 @@ contract TreasuryTest is Test {
         assertFalse(cancelled);
         assertTrue(queued);
         assertLe(executeAfter, block.timestamp);
+    }
+
+    function testNonExecutorExecuteFails() public {
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
+        treasury.revokeExecutorRole(address(this));
+
+        vm.expectRevert(Treasury.NotExecutor.selector);
+        treasury.execute(transactionIndex);
+    }
+
+    function testGrantedExecutorCanExecute() public {
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
+
+        treasury.grantExecutorRole(nonOwner);
+        treasury.revokeExecutorRole(address(this));
+
+        vm.prank(nonOwner);
+        treasury.execute(transactionIndex);
+
+        (,, bool executed,,,,) = treasury.transactions(transactionIndex);
+        assertTrue(executed);
     }
 
     function testExecuteTwiceFails() public {
