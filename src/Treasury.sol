@@ -211,8 +211,10 @@ contract Treasury {
         if (transaction.cancelled) revert TransactionIsCancelled();
         if (transaction.confirmations < owners.length) revert InsufficientApprovals();
         if (!transaction.queued) revert TransactionNotQueued();
+        /// forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp < transaction.executeAfter) revert ExecutionDelayNotElapsed();
 
+        /// forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp >= lastReset + 1 days) {
             spentToday = 0;
             lastReset = block.timestamp;
