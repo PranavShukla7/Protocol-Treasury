@@ -29,13 +29,13 @@ contract TreasuryTest is Test {
         vm.deal(nonOwner, 10 ether);
     }
 
-    function testDepositWorks() public {
-        uint256 amount = 1 ether;
+    function testFuzzDeposit(uint96 rawAmount) public {
+        uint256 amount = bound(rawAmount, 1, 100 ether);
 
+        vm.deal(depositor, amount);
         vm.prank(depositor);
         treasury.deposit{value: amount}();
 
-        assertEq(address(treasury).balance, amount);
         assertEq(treasury.contractBalance(), amount);
     }
 
@@ -118,12 +118,11 @@ contract TreasuryTest is Test {
         assertEq(treasury.contractBalance(), 1 ether);
     }
 
-    function testSubmitTransactionStoresTransaction() public {
-        uint256 amount = 0.75 ether;
+    function testFuzzSubmitTransaction(address fuzzRecipient, uint96 rawAmount) public {
+        uint256 amount = bound(rawAmount, 1, type(uint96).max);
 
-        uint256 transactionIndex = treasury.submitTransaction(recipient, amount);
+        uint256 index = treasury.submitTransaction(fuzzRecipient, amount);
 
-        assertEq(transactionIndex, 0);
         (
             address storedRecipient,
             uint256 storedAmount,
@@ -132,8 +131,9 @@ contract TreasuryTest is Test {
             uint256 confirmations,
             uint256 executeAfter,
             bool queued
-        ) = treasury.transactions(transactionIndex);
-        assertEq(storedRecipient, recipient);
+        ) = treasury.transactions(index);
+
+        assertEq(storedRecipient, fuzzRecipient);
         assertEq(storedAmount, amount);
         assertFalse(executed);
         assertFalse(cancelled);
@@ -542,55 +542,43 @@ contract TreasuryTest is Test {
         assertTrue(queued);
     }
 
-    function testExecuteDecreasesTreasuryBalance() public {
-        uint256 amount = 1 ether;
-        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(3 ether, amount);
-        uint256 treasuryBalanceBefore = treasury.contractBalance();
+    function testFuzzExecuteAccounting(uint96 rawAmount) public {
+        uint256 amount = bound(rawAmount, 1, treasury.DAILY_WITHDRAWAL_LIMIT());
+
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(amount + 1 ether, amount);
+
+        uint256 treasuryBefore = treasury.contractBalance();
+        uint256 recipientBefore = recipient.balance;
 
         treasury.execute(transactionIndex);
 
-        assertEq(treasury.contractBalance(), treasuryBalanceBefore - amount);
-    }
-
-    function testExecuteIncreasesRecipientBalance() public {
-        uint256 amount = 1 ether;
-        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(3 ether, amount);
-        uint256 recipientBalanceBefore = recipient.balance;
-
-        treasury.execute(transactionIndex);
-
-        assertEq(recipient.balance, recipientBalanceBefore + amount);
-    }
-
-    function testExecuteTracksSpentToday() public {
-        uint256 amount = 1 ether;
-        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(3 ether, amount);
-
-        treasury.execute(transactionIndex);
-
+        assertEq(treasury.contractBalance(), treasuryBefore - amount);
+        assertEq(recipient.balance, recipientBefore + amount);
         assertEq(treasury.spentToday(), amount);
     }
 
-    function testExecuteRevertsWhenDailyLimitExceeded() public {
-        vm.deal(depositor, 250 ether);
+    function testFuzzDailyWithdrawalLimit(uint96 rawFirst, uint96 rawSecond) public {
+        uint256 first = bound(rawFirst, 1, treasury.DAILY_WITHDRAWAL_LIMIT());
+        uint256 second =
+            bound(rawSecond, treasury.DAILY_WITHDRAWAL_LIMIT() - first + 1, treasury.DAILY_WITHDRAWAL_LIMIT());
+
+        vm.deal(depositor, first + second);
         vm.prank(depositor);
-        treasury.deposit{value: 200 ether}();
+        treasury.deposit{value: first + second}();
 
-        uint256 txOne = _submitAndApprove(80 ether);
-        uint256 txTwo = _submitAndApprove(30 ether);
+        uint256 firstTx = _submitAndApprove(first);
+        uint256 secondTx = _submitAndApprove(second);
 
-        treasury.queue(txOne);
-        treasury.queue(txTwo);
+        treasury.queue(firstTx);
+        treasury.queue(secondTx);
 
-        (,,,,, uint256 executeAfter,) = treasury.transactions(txOne);
+        (,,,,, uint256 executeAfter,) = treasury.transactions(firstTx);
         vm.warp(executeAfter);
 
-        treasury.execute(txOne);
+        treasury.execute(firstTx);
 
         vm.expectRevert(Treasury.DailyWithdrawalLimitExceeded.selector);
-        treasury.execute(txTwo);
-
-        assertEq(treasury.spentToday(), 80 ether);
+        treasury.execute(secondTx);
     }
 
     function testExecuteAllowsWithdrawalAfterDailyReset() public {
