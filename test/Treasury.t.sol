@@ -545,6 +545,7 @@ contract TreasuryTest is Test {
     function testFuzzExecuteAccounting(uint96 rawAmount) public {
         uint256 amount = bound(rawAmount, 1, treasury.DAILY_WITHDRAWAL_LIMIT());
 
+        vm.deal(depositor, amount + 1 ether);
         uint256 transactionIndex = _depositSubmitApproveQueueAndWait(amount + 1 ether, amount);
 
         uint256 treasuryBefore = treasury.contractBalance();
