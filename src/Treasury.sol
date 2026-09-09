@@ -291,4 +291,12 @@ contract Treasury {
         isTreasurer[account] = false;
         emit TreasurerRoleRevoked(account);
     }
+
+    function getTransactionCount() external view returns (uint256) {
+        return transactions.length;
+    }
+
+    function getOwnerCount() external view returns (uint256) {
+        return owners.length;
+    }
 }
