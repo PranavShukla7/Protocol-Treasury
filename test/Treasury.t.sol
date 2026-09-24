@@ -18,6 +18,7 @@ contract TreasuryTest is Test {
     event TransactionCancelled(uint256 indexed transactionIndex);
     event Paused(address indexed account);
     event Unpaused(address indexed account);
+    event EmergencyWithdrawal(address indexed caller, address indexed recipient, uint256 amount);
 
     receive() external payable {}
 
@@ -114,6 +115,34 @@ contract TreasuryTest is Test {
 
         vm.prank(depositor);
         treasury.deposit{value: 1 ether}();
+
+        assertEq(treasury.contractBalance(), 1 ether);
+    }
+
+    function testGuardianCanEmergencyWithdrawETHWhilePaused() public {
+        treasury.deposit{value: 2 ether}();
+        treasury.pause();
+
+        address guardian = address(0xFACE);
+        treasury.grantGuardianRole(guardian);
+        vm.deal(guardian, 1 ether);
+
+        vm.expectEmit(true, true, false, true, address(treasury));
+        emit EmergencyWithdrawal(guardian, recipient, 1 ether);
+
+        vm.prank(guardian);
+        treasury.emergencyWithdraw(payable(recipient), 1 ether);
+
+        assertEq(recipient.balance, 1 ether);
+        assertEq(treasury.contractBalance(), 1 ether);
+    }
+
+    function testNonGuardianOrOwnerCannotEmergencyWithdraw() public {
+        vm.deal(address(treasury), 1 ether);
+
+        vm.prank(nonOwner);
+        vm.expectRevert(Treasury.NotGuardianOrOwner.selector);
+        treasury.emergencyWithdraw(payable(recipient), 1 ether);
 
         assertEq(treasury.contractBalance(), 1 ether);
     }

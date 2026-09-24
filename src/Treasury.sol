@@ -47,6 +47,8 @@ contract Treasury {
     error NotPaused();
     error ContractPaused();
     error DailyWithdrawalLimitExceeded();
+    error NotGuardianOrOwner();
+    error ZeroAddress();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
@@ -62,6 +64,7 @@ contract Treasury {
     event ExecutorRoleRevoked(address indexed account);
     event TreasurerRoleGranted(address indexed account);
     event TreasurerRoleRevoked(address indexed account);
+    event EmergencyWithdrawal(address indexed caller, address indexed recipient, uint256 amount);
 
     modifier onlyOwner() {
         if (!isOwner[msg.sender]) revert NotOwner();
@@ -88,6 +91,11 @@ contract Treasury {
         _;
     }
 
+    modifier onlyGuardianOrOwner() {
+        if (!isGuardian[msg.sender] && !isOwner[msg.sender]) revert NotGuardianOrOwner();
+        _;
+    }
+
     constructor() {
         owners.push(msg.sender);
         isOwner[msg.sender] = true;
@@ -109,6 +117,22 @@ contract Treasury {
     /// @notice Returns the current ETH balance held by the treasury.
     function contractBalance() external view returns (uint256) {
         return address(this).balance;
+    }
+
+    /// @notice Recover ETH in an emergency. This remains available while paused.
+    /// @param recipient The address receiving the recovered funds.
+    /// @param amount The amount to recover.
+    function emergencyWithdraw(address payable recipient, uint256 amount)
+        external
+        onlyGuardianOrOwner
+    {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        (bool success,) = recipient.call{value: amount}("");
+        if (!success) revert TransactionFailed();
+
+        emit EmergencyWithdrawal(msg.sender, recipient, amount);
     }
 
     /// @notice Add a new treasury owner.
