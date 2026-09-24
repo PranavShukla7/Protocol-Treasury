@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.35;
 
+interface IERC20 {
+    function transfer(address recipient, uint256 amount) external returns (bool);
+}
+
 /// @title Treasury
-/// @notice Simple ETH treasury that can receive deposits and lets owners submit transactions.
+/// @notice Treasury that can receive ETH and lets owners submit transactions.
 contract Treasury {
     struct Transaction {
         address recipient;
@@ -48,6 +52,7 @@ contract Treasury {
     error ContractPaused();
     error DailyWithdrawalLimitExceeded();
     error NotGuardianOrOwner();
+    error TokenTransferFailed();
     error ZeroAddress();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
@@ -64,7 +69,7 @@ contract Treasury {
     event ExecutorRoleRevoked(address indexed account);
     event TreasurerRoleGranted(address indexed account);
     event TreasurerRoleRevoked(address indexed account);
-    event EmergencyWithdrawal(address indexed caller, address indexed recipient, uint256 amount);
+    event EmergencyWithdrawal(address indexed caller, address indexed token, address indexed recipient, uint256 amount);
 
     modifier onlyOwner() {
         if (!isOwner[msg.sender]) revert NotOwner();
@@ -119,20 +124,26 @@ contract Treasury {
         return address(this).balance;
     }
 
-    /// @notice Recover ETH in an emergency. This remains available while paused.
+    /// @notice Recover ETH or ERC20 tokens in an emergency.
+    /// @dev Pass address(0) as token to withdraw ETH. This remains available while paused.
+    /// @param token The ERC20 token address, or address(0) for ETH.
     /// @param recipient The address receiving the recovered funds.
     /// @param amount The amount to recover.
-    function emergencyWithdraw(address payable recipient, uint256 amount)
+    function emergencyWithdraw(address token, address payable recipient, uint256 amount)
         external
         onlyGuardianOrOwner
     {
         if (recipient == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
-        (bool success,) = recipient.call{value: amount}("");
-        if (!success) revert TransactionFailed();
+        if (token == address(0)) {
+            (bool success,) = recipient.call{value: amount}("");
+            if (!success) revert TransactionFailed();
+        } else if (!IERC20(token).transfer(recipient, amount)) {
+            revert TokenTransferFailed();
+        }
 
-        emit EmergencyWithdrawal(msg.sender, recipient, amount);
+        emit EmergencyWithdrawal(msg.sender, token, recipient, amount);
     }
 
     /// @notice Add a new treasury owner.

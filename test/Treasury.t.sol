@@ -4,6 +4,22 @@ pragma solidity ^0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {Treasury} from "../src/Treasury.sol";
 
+contract MockERC20 {
+    mapping(address => uint256) public balanceOf;
+
+    function mint(address account, uint256 amount) external {
+        balanceOf[account] += amount;
+    }
+
+    function transfer(address recipient, uint256 amount) external returns (bool) {
+        if (balanceOf[msg.sender] < amount) return false;
+
+        balanceOf[msg.sender] -= amount;
+        balanceOf[recipient] += amount;
+        return true;
+    }
+}
+
 contract TreasuryTest is Test {
     Treasury private treasury;
 
@@ -18,7 +34,7 @@ contract TreasuryTest is Test {
     event TransactionCancelled(uint256 indexed transactionIndex);
     event Paused(address indexed account);
     event Unpaused(address indexed account);
-    event EmergencyWithdrawal(address indexed caller, address indexed recipient, uint256 amount);
+    event EmergencyWithdrawal(address indexed caller, address indexed token, address indexed recipient, uint256 amount);
 
     receive() external payable {}
 
@@ -127,14 +143,24 @@ contract TreasuryTest is Test {
         treasury.grantGuardianRole(guardian);
         vm.deal(guardian, 1 ether);
 
-        vm.expectEmit(true, true, false, true, address(treasury));
-        emit EmergencyWithdrawal(guardian, recipient, 1 ether);
+        vm.expectEmit(true, true, true, true, address(treasury));
+        emit EmergencyWithdrawal(guardian, address(0), recipient, 1 ether);
 
         vm.prank(guardian);
-        treasury.emergencyWithdraw(payable(recipient), 1 ether);
+        treasury.emergencyWithdraw(address(0), payable(recipient), 1 ether);
 
         assertEq(recipient.balance, 1 ether);
         assertEq(treasury.contractBalance(), 1 ether);
+    }
+
+    function testOwnerCanEmergencyWithdrawERC20() public {
+        MockERC20 token = new MockERC20();
+        token.mint(address(treasury), 100 ether);
+
+        treasury.emergencyWithdraw(address(token), payable(recipient), 40 ether);
+
+        assertEq(token.balanceOf(recipient), 40 ether);
+        assertEq(token.balanceOf(address(treasury)), 60 ether);
     }
 
     function testNonGuardianOrOwnerCannotEmergencyWithdraw() public {
@@ -142,7 +168,7 @@ contract TreasuryTest is Test {
 
         vm.prank(nonOwner);
         vm.expectRevert(Treasury.NotGuardianOrOwner.selector);
-        treasury.emergencyWithdraw(payable(recipient), 1 ether);
+        treasury.emergencyWithdraw(address(0), payable(recipient), 1 ether);
 
         assertEq(treasury.contractBalance(), 1 ether);
     }
