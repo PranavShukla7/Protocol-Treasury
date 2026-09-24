@@ -129,10 +129,7 @@ contract Treasury {
     /// @param token The ERC20 token address, or address(0) for ETH.
     /// @param recipient The address receiving the recovered funds.
     /// @param amount The amount to recover.
-    function emergencyWithdraw(address token, address payable recipient, uint256 amount)
-        external
-        onlyGuardianOrOwner
-    {
+    function emergencyWithdraw(address token, address payable recipient, uint256 amount) external onlyGuardianOrOwner {
         if (recipient == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
