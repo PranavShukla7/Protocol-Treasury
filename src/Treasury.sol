@@ -54,6 +54,8 @@ contract Treasury {
     error NotGuardianOrOwner();
     error TokenTransferFailed();
     error ZeroAddress();
+    error OwnerNotFound();
+    error LastOwner();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
@@ -69,6 +71,8 @@ contract Treasury {
     event ExecutorRoleRevoked(address indexed account);
     event TreasurerRoleGranted(address indexed account);
     event TreasurerRoleRevoked(address indexed account);
+    event OwnerAdded(address indexed owner);
+    event OwnerRemoved(address indexed owner);
     event EmergencyWithdrawal(address indexed caller, address indexed token, address indexed recipient, uint256 amount);
 
     modifier onlyOwner() {
@@ -146,10 +150,30 @@ contract Treasury {
     /// @notice Add a new treasury owner.
     /// @param owner The address to add as an owner.
     function addOwner(address owner) external onlyOwner whenNotPaused {
+        if (owner == address(0)) revert ZeroAddress();
         if (isOwner[owner]) revert AlreadyOwner();
 
         owners.push(owner);
         isOwner[owner] = true;
+
+        emit OwnerAdded(owner);
+    }
+
+    /// @notice Remove an existing treasury owner.
+    function removeOwner(address owner) external onlyOwner whenNotPaused {
+        if (!isOwner[owner]) revert OwnerNotFound();
+        if (owners.length == 1) revert LastOwner();
+
+        uint256 ownerIndex;
+        while (owners[ownerIndex] != owner) {
+            ownerIndex++;
+        }
+
+        owners[ownerIndex] = owners[owners.length - 1];
+        owners.pop();
+        isOwner[owner] = false;
+
+        emit OwnerRemoved(owner);
     }
 
     /// @notice Pause treasury operations.

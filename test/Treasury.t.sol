@@ -61,6 +61,30 @@ contract TreasuryTest is Test {
         assertTrue(treasury.isOwner(address(this)));
     }
 
+    function testCannotAddZeroAddressAsOwner() public {
+        vm.expectRevert(Treasury.ZeroAddress.selector);
+        treasury.addOwner(address(0));
+    }
+
+    function testCanRemoveOwner() public {
+        treasury.removeOwner(ownerTwo);
+
+        assertFalse(treasury.isOwner(ownerTwo));
+        assertEq(treasury.getOwnerCount(), 1);
+    }
+
+    function testCannotRemoveLastOwner() public {
+        treasury.removeOwner(ownerTwo);
+
+        vm.expectRevert(Treasury.LastOwner.selector);
+        treasury.removeOwner(address(this));
+    }
+
+    function testCannotRemoveUnknownOwner() public {
+        vm.expectRevert(Treasury.OwnerNotFound.selector);
+        treasury.removeOwner(nonOwner);
+    }
+
     function testStartsUnpaused() public view {
         assertFalse(treasury.paused());
     }
