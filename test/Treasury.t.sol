@@ -179,12 +179,34 @@ contract TreasuryTest is Test {
 
     function testOwnerCanEmergencyWithdrawERC20() public {
         MockERC20 token = new MockERC20();
-        token.mint(address(treasury), 100 ether);
+        token.mint(address(treasury), 10 ether);
 
-        treasury.emergencyWithdraw(address(token), payable(recipient), 40 ether);
+        treasury.emergencyWithdraw(address(token), payable(recipient), 4 ether);
 
-        assertEq(token.balanceOf(recipient), 40 ether);
-        assertEq(token.balanceOf(address(treasury)), 60 ether);
+        assertEq(token.balanceOf(recipient), 4 ether);
+        assertEq(token.balanceOf(address(treasury)), 6 ether);
+    }
+
+    function testEmergencyWithdrawalHasSeparateDailyLimit() public {
+        treasury.deposit{value: 20 ether}();
+
+        treasury.emergencyWithdraw(address(0), payable(recipient), treasury.EMERGENCY_WITHDRAWAL_LIMIT());
+
+        vm.expectRevert(Treasury.EmergencyDailyWithdrawalLimitExceeded.selector);
+        treasury.emergencyWithdraw(address(0), payable(recipient), 1);
+
+        assertEq(treasury.spentToday(), 0);
+        assertEq(treasury.emergencySpentToday(address(0)), treasury.EMERGENCY_WITHDRAWAL_LIMIT());
+    }
+
+    function testEmergencyWithdrawalLimitResetsPerAsset() public {
+        treasury.deposit{value: 20 ether}();
+        treasury.emergencyWithdraw(address(0), payable(recipient), treasury.EMERGENCY_WITHDRAWAL_LIMIT());
+
+        vm.warp(block.timestamp + 1 days);
+        treasury.emergencyWithdraw(address(0), payable(recipient), 1 ether);
+
+        assertEq(treasury.emergencySpentToday(address(0)), 1 ether);
     }
 
     function testNonGuardianOrOwnerCannotEmergencyWithdraw() public {

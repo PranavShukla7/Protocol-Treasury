@@ -20,6 +20,7 @@ contract Treasury {
 
     uint256 public constant EXECUTION_DELAY = 1 days;
     uint256 public constant DAILY_WITHDRAWAL_LIMIT = 100 ether;
+    uint256 public constant EMERGENCY_WITHDRAWAL_LIMIT = 10 ether;
 
     address[] public owners;
     mapping(address => bool) public isOwner;
@@ -31,6 +32,8 @@ contract Treasury {
     bool public paused;
     uint256 public spentToday;
     uint256 public lastReset;
+    mapping(address => uint256) public emergencySpentToday;
+    mapping(address => uint256) public emergencyLastReset;
 
     error NotOwner();
     error NotGuardian();
@@ -56,6 +59,7 @@ contract Treasury {
     error ZeroAddress();
     error OwnerNotFound();
     error LastOwner();
+    error EmergencyDailyWithdrawalLimitExceeded();
 
     event Deposited(address indexed sender, uint256 amount, uint256 balanceAfter);
     event TransactionSubmitted(uint256 indexed transactionIndex, address indexed recipient, uint256 amount);
@@ -136,6 +140,19 @@ contract Treasury {
     function emergencyWithdraw(address token, address payable recipient, uint256 amount) external onlyGuardianOrOwner {
         if (recipient == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
+
+        uint256 reset = emergencyLastReset[token];
+        /// forge-lint: disable-next-line(block-timestamp)
+        if (reset == 0 || block.timestamp >= reset + 1 days) {
+            emergencySpentToday[token] = 0;
+            emergencyLastReset[token] = block.timestamp;
+        }
+
+        if (emergencySpentToday[token] + amount > EMERGENCY_WITHDRAWAL_LIMIT) {
+            revert EmergencyDailyWithdrawalLimitExceeded();
+        }
+
+        emergencySpentToday[token] += amount;
 
         if (token == address(0)) {
             (bool success,) = recipient.call{value: amount}("");
