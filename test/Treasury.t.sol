@@ -161,10 +161,10 @@ contract TreasuryTest is Test {
 
     function testGuardianCanEmergencyWithdrawETHWhilePaused() public {
         treasury.deposit{value: 2 ether}();
-        treasury.pause();
 
         address guardian = address(0xFACE);
-        treasury.grantGuardianRole(guardian);
+        _executeRoleChange(guardian, Treasury.Role.Guardian, true);
+        treasury.pause();
         vm.deal(guardian, 1 ether);
 
         vm.expectEmit(true, true, true, true, address(treasury));
@@ -274,7 +274,7 @@ contract TreasuryTest is Test {
     }
 
     function testGrantedTreasurerCanSubmitTransaction() public {
-        treasury.grantTreasurerRole(nonOwner);
+        _executeRoleChange(nonOwner, Treasury.Role.Treasurer, true);
 
         vm.prank(nonOwner);
         uint256 transactionIndex = treasury.submitTransaction(recipient, 0.5 ether);
@@ -530,7 +530,8 @@ contract TreasuryTest is Test {
 
     function testNonExecutorExecuteFails() public {
         uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
-        treasury.revokeExecutorRole(address(this));
+        _executeRoleChange(nonOwner, Treasury.Role.Executor, true);
+        _executeRoleChange(address(this), Treasury.Role.Executor, false);
 
         vm.expectRevert(Treasury.NotExecutor.selector);
         treasury.execute(transactionIndex);
@@ -539,14 +540,29 @@ contract TreasuryTest is Test {
     function testGrantedExecutorCanExecute() public {
         uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
 
-        treasury.grantExecutorRole(nonOwner);
-        treasury.revokeExecutorRole(address(this));
+        _executeRoleChange(nonOwner, Treasury.Role.Executor, true);
+        _executeRoleChange(address(this), Treasury.Role.Executor, false);
 
         vm.prank(nonOwner);
         treasury.execute(transactionIndex);
 
         (,, bool executed,,,,) = treasury.transactions(transactionIndex);
         assertTrue(executed);
+    }
+
+    function testCannotRemoveLastRoleMember() public {
+        _executeRoleChange(ownerTwo, Treasury.Role.Guardian, true);
+        _executeRoleChange(address(this), Treasury.Role.Guardian, false);
+
+        uint256 roleChangeIndex = treasury.proposeRoleChange(ownerTwo, Treasury.Role.Guardian, false);
+        treasury.approveRoleChange(roleChangeIndex);
+        vm.prank(ownerTwo);
+        treasury.approveRoleChange(roleChangeIndex);
+        treasury.queueRoleChange(roleChangeIndex);
+        vm.warp(block.timestamp + treasury.ROLE_CHANGE_DELAY());
+
+        vm.expectRevert(Treasury.LastRoleMember.selector);
+        treasury.executeRoleChange(roleChangeIndex);
     }
 
     function testExecuteTwiceFails() public {
@@ -714,6 +730,18 @@ contract TreasuryTest is Test {
 
         vm.prank(ownerTwo);
         treasury.approve(transactionIndex);
+    }
+
+    function _executeRoleChange(address account, Treasury.Role role, bool grant) private {
+        uint256 roleChangeIndex = treasury.proposeRoleChange(account, role, grant);
+        treasury.approveRoleChange(roleChangeIndex);
+
+        vm.prank(ownerTwo);
+        treasury.approveRoleChange(roleChangeIndex);
+
+        treasury.queueRoleChange(roleChangeIndex);
+        vm.warp(block.timestamp + treasury.ROLE_CHANGE_DELAY());
+        treasury.executeRoleChange(roleChangeIndex);
     }
 
     function _depositSubmitApproveQueueAndWait(uint256 depositAmount, uint256 transactionAmount)
