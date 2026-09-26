@@ -271,6 +271,12 @@ contract TreasuryTest is Test {
     function testFuzzSubmitTransaction(address fuzzRecipient, uint96 rawAmount) public {
         uint256 amount = bound(rawAmount, 1, type(uint96).max);
 
+        if (fuzzRecipient == address(0)) {
+            vm.expectRevert(Treasury.ZeroAddress.selector);
+            treasury.submitTransaction(fuzzRecipient, amount);
+            return;
+        }
+
         uint256 index = treasury.submitTransaction(fuzzRecipient, amount);
 
         (
