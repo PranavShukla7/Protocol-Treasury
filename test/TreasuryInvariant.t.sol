@@ -8,11 +8,18 @@ contract Handler is Test {
     Treasury public treasury;
     address public ownerOne;
     address public ownerTwo;
+    uint256 public expectedEthBalance;
+    mapping(uint256 => uint256) public successfulExecutions;
+    mapping(uint256 => address) public queuedRecipients;
+    mapping(uint256 => uint256) public queuedAmounts;
+    mapping(uint256 => uint256) public queuedExecuteAfter;
+    mapping(uint256 => bool) public hasQueuedSnapshot;
 
     constructor(Treasury _treasury, address _ownerOne, address _ownerTwo) {
         treasury = _treasury;
         ownerOne = _ownerOne;
         ownerTwo = _ownerTwo;
+        expectedEthBalance = address(_treasury).balance;
     }
 
     function _actor(bool useOwnerTwo) private view returns (address) {
@@ -25,7 +32,9 @@ contract Handler is Test {
 
         vm.deal(actor, amount);
         vm.prank(actor);
-        treasury.deposit{value: amount}();
+        try treasury.deposit{value: amount}() {
+            expectedEthBalance += amount;
+        } catch {}
     }
 
     function submitTransaction(address recipient, uint96 rawAmount, bool useOwnerTwo) public {
@@ -42,7 +51,13 @@ contract Handler is Test {
 
     function queueTransaction(uint256 transactionIndex, bool useOwnerTwo) public {
         vm.prank(_actor(useOwnerTwo));
-        treasury.queue(transactionIndex);
+        try treasury.queue(transactionIndex) {
+            (address recipient, uint256 amount,,,, uint256 executeAfter,) = treasury.transactions(transactionIndex);
+            queuedRecipients[transactionIndex] = recipient;
+            queuedAmounts[transactionIndex] = amount;
+            queuedExecuteAfter[transactionIndex] = executeAfter;
+            hasQueuedSnapshot[transactionIndex] = true;
+        } catch {}
     }
 
     function cancelTransaction(uint256 transactionIndex, bool useOwnerTwo) public {
@@ -52,7 +67,11 @@ contract Handler is Test {
 
     function executeTransaction(uint256 transactionIndex, bool useOwnerTwo) public {
         vm.prank(_actor(useOwnerTwo));
-        treasury.execute(transactionIndex);
+        try treasury.execute(transactionIndex) {
+            (, uint256 amount,,,,,) = treasury.transactions(transactionIndex);
+            successfulExecutions[transactionIndex]++;
+            expectedEthBalance -= amount;
+        } catch {}
     }
 
     function pause(bool useOwnerTwo) public {
@@ -128,6 +147,56 @@ contract TreasuryInvariantTest is Test {
             }
 
             assertEq(confirmations, approvalCount);
+        }
+    }
+
+    function invariantExecutedTransactionsCannotExecuteAgain() public view {
+        for (uint256 i = 0; i < treasury.getTransactionCount(); i++) {
+            (,, bool executed,,,,) = treasury.transactions(i);
+
+            assertLe(handler.successfulExecutions(i), 1);
+            if (executed) {
+                assertEq(handler.successfulExecutions(i), 1);
+            }
+        }
+    }
+
+    function invariantCancelledTransactionsNeverExecute() public view {
+        for (uint256 i = 0; i < treasury.getTransactionCount(); i++) {
+            (,, bool executed, bool cancelled,,,) = treasury.transactions(i);
+
+            if (cancelled) {
+                assertFalse(executed);
+                assertEq(handler.successfulExecutions(i), 0);
+            }
+        }
+    }
+
+    function invariantEthBalanceMatchesSuccessfulTransfers() public view {
+        assertEq(address(treasury).balance, handler.expectedEthBalance());
+    }
+
+    function invariantQueuedTransactionsAreImmutable() public view {
+        for (uint256 i = 0; i < treasury.getTransactionCount(); i++) {
+            if (handler.hasQueuedSnapshot(i)) {
+                (address recipient, uint256 amount,,,, uint256 executeAfter, bool queued) = treasury.transactions(i);
+
+                assertTrue(queued);
+                assertEq(recipient, handler.queuedRecipients(i));
+                assertEq(amount, handler.queuedAmounts(i));
+                assertEq(executeAfter, handler.queuedExecuteAfter(i));
+            }
+        }
+    }
+
+    function invariantAdministrationRemainsUsable() public view {
+        assertGt(treasury.getOwnerCount(), 0);
+        assertGt(treasury.guardianCount(), 0);
+        assertGt(treasury.executorCount(), 0);
+        assertGt(treasury.treasurerCount(), 0);
+
+        for (uint256 i = 0; i < treasury.getOwnerCount(); i++) {
+            assertTrue(treasury.isOwner(treasury.owners(i)));
         }
     }
 

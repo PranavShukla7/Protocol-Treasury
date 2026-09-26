@@ -189,8 +189,8 @@ contract Treasury {
         if (token == address(0)) {
             (bool success,) = recipient.call{value: amount}("");
             if (!success) revert TransactionFailed();
-        } else if (!IERC20(token).transfer(recipient, amount)) {
-            revert TokenTransferFailed();
+        } else {
+            _safeTransfer(token, recipient, amount);
         }
 
         emit EmergencyWithdrawal(msg.sender, token, recipient, amount);
@@ -252,6 +252,7 @@ contract Treasury {
         whenNotPaused
         returns (uint256 transactionIndex)
     {
+        if (recipient == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
         transactionIndex = transactions.length;
@@ -365,6 +366,17 @@ contract Treasury {
     function _deposit() internal {
         if (msg.value == 0) revert ZeroAmount();
         emit Deposited(msg.sender, msg.value, address(this).balance);
+    }
+
+    function _safeTransfer(address token, address recipient, uint256 amount) internal {
+        if (token.code.length == 0) revert TokenTransferFailed();
+
+        (bool success, bytes memory returnData) =
+            token.call(abi.encodeWithSelector(IERC20.transfer.selector, recipient, amount));
+
+        if (!success || (returnData.length != 0 && (returnData.length < 32 || !abi.decode(returnData, (bool))))) {
+            revert TokenTransferFailed();
+        }
     }
 
     function proposeRoleChange(address account, Role role, bool grant)

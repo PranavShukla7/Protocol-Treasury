@@ -1,4 +1,13 @@
-## Foundry
+## Protocol Treasury
+
+This repository contains an ETH and ERC20 treasury with owner-approved, delayed
+ETH payments, role governance, pause controls, and bounded emergency recovery.
+
+Read the [threat model](docs/THREAT_MODEL.md) before reviewing or operating the
+contract. The [operations runbook](docs/OPERATIONS_RUNBOOK.md) describes the
+payment flow, incident response, key recovery limits, and parameter policy.
+
+## Development
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
 

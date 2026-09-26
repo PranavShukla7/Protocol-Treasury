@@ -20,6 +20,26 @@ contract MockERC20 {
     }
 }
 
+contract NoReturnERC20 {
+    mapping(address => uint256) public balanceOf;
+
+    function mint(address account, uint256 amount) external {
+        balanceOf[account] += amount;
+    }
+
+    function transfer(address recipient, uint256 amount) external {
+        require(balanceOf[msg.sender] >= amount);
+        balanceOf[msg.sender] -= amount;
+        balanceOf[recipient] += amount;
+    }
+}
+
+contract RevertingRecipient {
+    receive() external payable {
+        revert();
+    }
+}
+
 contract TreasuryTest is Test {
     Treasury private treasury;
 
@@ -64,6 +84,11 @@ contract TreasuryTest is Test {
     function testCannotAddZeroAddressAsOwner() public {
         vm.expectRevert(Treasury.ZeroAddress.selector);
         treasury.addOwner(address(0));
+    }
+
+    function testCannotSubmitZeroAddressRecipient() public {
+        vm.expectRevert(Treasury.ZeroAddress.selector);
+        treasury.submitTransaction(address(0), 1 ether);
     }
 
     function testCanRemoveOwner() public {
@@ -185,6 +210,30 @@ contract TreasuryTest is Test {
 
         assertEq(token.balanceOf(recipient), 4 ether);
         assertEq(token.balanceOf(address(treasury)), 6 ether);
+    }
+
+    function testEmergencyWithdrawSupportsNoReturnToken() public {
+        NoReturnERC20 token = new NoReturnERC20();
+        token.mint(address(treasury), 4 ether);
+
+        treasury.emergencyWithdraw(address(token), payable(recipient), 4 ether);
+
+        assertEq(token.balanceOf(recipient), 4 ether);
+    }
+
+    function testEmergencyWithdrawRejectsFalseTokenTransfer() public {
+        MockERC20 token = new MockERC20();
+        token.mint(address(treasury), 1 ether);
+
+        vm.expectRevert(Treasury.TokenTransferFailed.selector);
+        treasury.emergencyWithdraw(address(token), payable(recipient), 2 ether);
+
+        assertEq(treasury.emergencySpentToday(address(token)), 0);
+    }
+
+    function testEmergencyWithdrawRejectsNonContractToken() public {
+        vm.expectRevert(Treasury.TokenTransferFailed.selector);
+        treasury.emergencyWithdraw(address(0x1234), payable(recipient), 1 ether);
     }
 
     function testEmergencyWithdrawalHasSeparateDailyLimit() public {
@@ -528,6 +577,29 @@ contract TreasuryTest is Test {
         assertLe(executeAfter, block.timestamp);
     }
 
+    function testExecuteRevertingRecipientFails() public {
+        RevertingRecipient revertingRecipient = new RevertingRecipient();
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether, address(revertingRecipient));
+
+        vm.expectRevert(Treasury.TransactionFailed.selector);
+        treasury.execute(transactionIndex);
+
+        (,, bool executed,,,,) = treasury.transactions(transactionIndex);
+        assertFalse(executed);
+        assertEq(treasury.contractBalance(), 2 ether);
+    }
+
+    function testExecuteInsufficientETHFails() public {
+        uint256 transactionIndex = _depositSubmitApproveQueueAndWait(1 ether, 2 ether);
+
+        vm.expectRevert(Treasury.TransactionFailed.selector);
+        treasury.execute(transactionIndex);
+
+        (,, bool executed,,,,) = treasury.transactions(transactionIndex);
+        assertFalse(executed);
+        assertEq(treasury.contractBalance(), 1 ether);
+    }
+
     function testNonExecutorExecuteFails() public {
         uint256 transactionIndex = _depositSubmitApproveQueueAndWait(2 ether, 1 ether);
         _executeRoleChange(nonOwner, Treasury.Role.Executor, true);
@@ -724,8 +796,35 @@ contract TreasuryTest is Test {
         assertEq(treasury.spentToday(), 1 ether);
     }
 
+    function testDailyLimitResetsAtExactBoundary() public {
+        vm.deal(depositor, 101 ether);
+        vm.prank(depositor);
+        treasury.deposit{value: 101 ether}();
+
+        uint256 firstTx = _submitAndApprove(100 ether);
+        uint256 secondTx = _submitAndApprove(1 ether);
+        treasury.queue(firstTx);
+        treasury.queue(secondTx);
+
+        (,,,,, uint256 executeAfter,) = treasury.transactions(firstTx);
+        vm.warp(executeAfter);
+        treasury.execute(firstTx);
+
+        vm.warp(treasury.lastReset() + 1 days);
+        treasury.execute(secondTx);
+
+        assertEq(treasury.spentToday(), 1 ether);
+    }
+
     function _submitAndApprove(uint256 transactionAmount) private returns (uint256 transactionIndex) {
-        transactionIndex = treasury.submitTransaction(recipient, transactionAmount);
+        return _submitAndApprove(transactionAmount, recipient);
+    }
+
+    function _submitAndApprove(uint256 transactionAmount, address transactionRecipient)
+        private
+        returns (uint256 transactionIndex)
+    {
+        transactionIndex = treasury.submitTransaction(transactionRecipient, transactionAmount);
         treasury.approve(transactionIndex);
 
         vm.prank(ownerTwo);
@@ -748,10 +847,18 @@ contract TreasuryTest is Test {
         private
         returns (uint256 transactionIndex)
     {
+        return _depositSubmitApproveQueueAndWait(depositAmount, transactionAmount, recipient);
+    }
+
+    function _depositSubmitApproveQueueAndWait(
+        uint256 depositAmount,
+        uint256 transactionAmount,
+        address transactionRecipient
+    ) private returns (uint256 transactionIndex) {
         vm.prank(depositor);
         treasury.deposit{value: depositAmount}();
 
-        transactionIndex = _submitAndApprove(transactionAmount);
+        transactionIndex = _submitAndApprove(transactionAmount, transactionRecipient);
         treasury.queue(transactionIndex);
 
         (,,,,, uint256 executeAfter,) = treasury.transactions(transactionIndex);
